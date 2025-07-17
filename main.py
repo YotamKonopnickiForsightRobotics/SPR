@@ -12,13 +12,15 @@ import time
 # ==============================
 
 # SSH connection settings
-SSH_HOST = "192.168.16.221"
+SSH_HOST = "100.0.0.177"
 SSH_PORT = 22
 SSH_USERNAME = "lab1"
 SSH_PASSWORD = "rubyruby"
 
+system_mapping = {4: "SYS_A", 5: "SYS_B", 6: "SYS_C", 7: "SYS_D", 8: "SYS_E", 9: "SYS_F", 10: "SYS_G", 11: "SYS_H"}
+
 # Local paths
-LOCAL_ZIP_PATH = "SPR.zip"
+LOCAL_ZIP_PATH = "SPR"
 LOCAL_DESCRIPTION_FILENAME = "description.txt"
 
 # Remote command/file paths
@@ -181,14 +183,18 @@ def copy_remote_file_to_local(ssh_client, remote_path, local_path):
 
 
 
-def add_description_to_zip():
+def add_description_to_zip(zip_path):
     """
     Appends the description.txt file into the existing ZIP file and then deletes it from the local system.
     """
-    with zipfile.ZipFile(LOCAL_ZIP_PATH, "a") as zip_ref:
+    with zipfile.ZipFile(zip_path, "a") as zip_ref:
         zip_ref.write(LOCAL_DESCRIPTION_FILENAME, arcname=LOCAL_DESCRIPTION_FILENAME)
     os.remove(LOCAL_DESCRIPTION_FILENAME)
 
+
+
+def get_time_now():
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 def zip_log_files(progress):
@@ -211,7 +217,6 @@ def zip_log_files(progress):
     runs = runs_str.split("\n")
 
     current_run_dir = current_version_log_dir + "/" + get_newest(runs)
-    print(current_run_dir)
 
     zip_path = current_run_dir + "/" + REMOTE_ZIP_NAME
     recordings_path = current_run_dir + "/" + REMOTE_RECORDINGS_SUBDIR
@@ -237,22 +242,28 @@ def zip_log_files(progress):
 
     progress.update_status("zipping files", 7)
 
-    print(zip_path)
-    print(str_of_all_files_to_copy)
 
     try:
-        print(ssh_run_command(client, f"zip -r {zip_path} {str_of_all_files_to_copy}"))
+        ssh_run_command(client, f"zip -r {zip_path} {str_of_all_files_to_copy}")
     except Exception as e:
-        print(e)
         raise Exception(e)
 
     progress.update_status("copying zip file", 50)
-    copy_remote_file_to_local(client, zip_path, LOCAL_ZIP_PATH)
+
+    try:
+        system = system_mapping[int(get_newest(runs)[3:4])]
+    except Exception as e:
+        raise Exception("invalid system")
+
+    local_zip_path = LOCAL_ZIP_PATH + "_" + get_time_now() + "_" + system + ".zip"
+
+    copy_remote_file_to_local(client, zip_path, local_zip_path)
     ssh_run_command(client, f"rm {zip_path}")
     progress.update_status("finished zipping files", 100)
 
     client.close()
 
+    return local_zip_path
 
 
 def main():
@@ -268,14 +279,16 @@ def main():
 
     progress = ProgressWindow(root_progress)
 
+    zip_path = ""
+
     try:
-        zip_log_files(progress)
+        zip_path = zip_log_files(progress)
     except Exception as e:
         progress.update_status(f"there was an error with the zip:\n{e}\nfinish doing it urself", 0)
         progress.close_after_delay(5)
         return
 
-    add_description_to_zip()
+    add_description_to_zip(zip_path)
 
     progress.close_after_delay()
 
